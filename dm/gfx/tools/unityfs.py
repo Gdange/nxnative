@@ -213,6 +213,18 @@ ComputeShader: string m_Name; vector<data:ComputeShaderPlatformVariant> variants
 '''
 # Unity 2019.4.27f1's release tree (AssetRipper TypeTreeDumps, StructsDump/release/2019.4.27f1.dump): kernels hold code directly, without keyword variants or requirements.
 # Pokemon Brilliant Diamond's stripped built-ins use this hash; their GPU skinning dispatch needs these kernels. Checked against the dump's nodes and alignment flags.
+# Unity 2021.3.18f1's ComputeShader (Shin chan: Shiro and the Coal Town; AssetRipper TypeTreeDumps StructsDump/release/2021.3.18f1.dump):
+# a kernel parent holds a map of variants (2022.3's uniqueVariants + variantIndices + dynamicKeywords do not exist yet), and a kernel's code is
+# a byte vector (2022.3: unsigned int) followed by its thread group size and an SInt64 requirement word.
+COMPUTE_2021_3 = '''ComputeShaderResource: string name; string generatedName; int bindPoint; int samplerBindPoint; int texDimension
+ComputeShaderBuiltinSampler: unsigned int sampler; int bindPoint
+ComputeShaderKernel: vector<data:unsigned int> cbVariantIndices; vector<data:ComputeShaderResource> cbs; vector<data:ComputeShaderResource> textures; vector<data:ComputeShaderBuiltinSampler> builtinSamplers; vector<data:ComputeShaderResource> inBuffers; vector<data:ComputeShaderResource> outBuffers; vector<data:UInt8> code; staticvector<data:unsigned int> threadGroupSize; SInt64 requirements
+ComputeShaderKernelParent: string name; map<data:pair(string,ComputeShaderKernel)> variantMap; vector<data:string> globalKeywords; vector<data:string> localKeywords
+ComputeShaderParam: string name; int type; unsigned int offset; unsigned int arraySize; unsigned int rowCount; unsigned int colCount
+ComputeShaderCB: string name; int byteSize; vector<data:ComputeShaderParam> params
+ComputeShaderPlatformVariant: int targetRenderer; int targetLevel; vector<data:ComputeShaderKernelParent> kernels; vector<data:ComputeShaderCB> constantBuffers; bool resourcesResolved
+ComputeShader: string m_Name; vector<data:ComputeShaderPlatformVariant> variants
+'''
 COMPUTE_2019_4 = '''ComputeShaderResource: string name; string generatedName; int bindPoint; int samplerBindPoint; int texDimension
 ComputeShaderBuiltinSampler: unsigned int sampler; int bindPoint
 ComputeShaderKernel: string name; vector<data:ComputeShaderResource> cbs; vector<data:ComputeShaderResource> textures; vector<data:ComputeShaderBuiltinSampler> builtinSamplers; vector<data:ComputeShaderResource> inBuffers; vector<data:ComputeShaderResource> outBuffers; vector<data:UInt8> code; staticvector<data:unsigned int>~ threadGroupSize
@@ -227,7 +239,11 @@ KNOWN_TREES = {(CLASS_SHADER, bytes.fromhex('ea424a5fc1e48db62144df956f9e1005'))
                (CLASS_SHADER, bytes.fromhex('a30e3dcf6c6d25153d6f64e5e41caf4e')): ('Shader', SHADER_2020_3),
                (CLASS_SHADER, bytes.fromhex('8db760073e1392061e4a36995f0735af')): ('Shader', SHADER_2018_3),
                (CLASS_COMPUTE_SHADER, bytes.fromhex('bfdf63ab0ce84d5a2c765ee560d90fe7')): ('ComputeShader', COMPUTE_2022_3),
-               (CLASS_COMPUTE_SHADER, bytes.fromhex('1a95529ac2eb1a97cd9d2a4356bd722f')): ('ComputeShader', COMPUTE_2019_4)}
+               (CLASS_COMPUTE_SHADER, bytes.fromhex('1a95529ac2eb1a97cd9d2a4356bd722f')): ('ComputeShader', COMPUTE_2019_4),
+               # Shin chan: Shiro and the Coal Town (Unity 2021.3.18f1): its built-in `unity default resources` carries no type tree for
+               # class 72; without a layout the split left its GPU-skinning kernels out (the character model collapsed into a blob).
+               # 2021.3's ComputeShader serializes as 2022.3's does (keyword variants and parents).
+               (CLASS_COMPUTE_SHADER, bytes.fromhex('abd9135b8ce83d043fef4e9ec7f53366')): ('ComputeShader', COMPUTE_2021_3)}
 
 def _split_top(s, sep):   # s split at sep outside <> and ()
     out, depth, cur = [], 0, ''
