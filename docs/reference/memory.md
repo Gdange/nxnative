@@ -247,6 +247,37 @@ The guest address space, heaps, pools, virtual address memory and the allocators
   - [Batman: Arkham Knight](../../dm/games/0100ACD0163D0000/README.md) (Unreal Engine 3 with a binned allocator of this kind, 1.0.5, SDK 14.3.0): the static constructors reserve 1 GB for its tables and 37 GB for its pools (`main+0x192eee8`, `main+0x192fe50`; the region check stops the provisional build there). The object is in the bss (`main+0x51818c0`) and its constructor is inlined into the guarded function behind `GMalloc` (`main+0x192eb30`), so the cut is a branch from the guard's acquisition to its release, not a nop; `hle_uemalloc.c` checks for that word. Its FMalloc interface is UE3's: 25 slots with 32-bit sizes and no `TryMalloc` / `TryRealloc` (layout `UE3`: QuantizeSize 3, Malloc 4, Realloc 5, Free 6, GetAllocationSize 20, which stores a 32-bit size), found by the vtable offsets of `GMalloc`'s 36,800 call sites (`+0x20` / `+0x28` / `+0x30` for 8,090 / 8,423 / 20,308 of them). The host heap held 1.75 GB 45 s into the boot.
 - **Note:** Unreal Engine 4.18 (DRAGON QUEST XI S) needs no allocator cut: the SDK's `NumberLineAllocator` hands its region out in 64 KB units (`main+0x177c4d0`), and the engine maps only what it uses.
 
+### Finding a new Unreal game's allocator entry for `k_ue`
+
+- **When:** a game reaches `nninitStartup` (the engine region is granted: `[mem] address region N GB at alias +…`) and then
+  crashes on a null read, or `nn::diag` aborts, or a later `malloc` returns 0 — while the other Unreal games here boot. The
+  host only replaces `FMallocBinned3` for the builds its `k_ue` table names (`dm/host/hle_uemalloc.c`); an unnamed build
+  keeps the guest's allocator, whose 37 GB of pools the engine region does not have.
+- **Three addresses, from the binary** (`patched_v0/main.patched.bin`; `file offset = virtual address` in that image):
+  1. **The cut**: in `nninitStartup`, the call right after the region request returns. Find the `bl` whose return address
+     matches the log's `returning to main+…`, then the next `bl` to a *local* target (not a `0x6f7xxxx` PLT stub).
+  2. **The object**: the `adrp`/`add` pair that loads `x0` just before that call — a bss address, or 0 when
+     `GCreateMalloc` makes it at run time (then the entry's `obj` is 0 and the gate takes `x19`).
+  3. **The vtable**: inside the constructor, the `adrp`/`add` stored through `x0` (`str x8, [x0]`).
+- **The layout, from the vtable** (do not guess from strings: every version has `Binned3`):
+  read 32 pointers at the vtable address. **Slots 2-5 all the same function and slots 6 / 8 / 10 zero → `UE5_6`** (5.x:
+  Malloc at 6, `MallocZeroed` / `TryMallocZeroed` at 11 / 12). **`UE4_27`: Malloc at slot 3**, 21 slots, no
+  `MallocZeroed`. `UE5` / `UE3` are the other two in `k_lay`.
+- **The profile**: the `patches.py` `CUTS` entry replaces the `bl` with `1f2003d5` (`nop`), keyed by the main build ID;
+  `k_ue` gets `{ build, what, layout, obj, vtable, cut }`. A game whose allocator is made at run time also needs the
+  `OBS` gate (21) at the instruction after the cut.
+- **The memory keys**, if the engine region itself is new to the game: `game_args=-SwitchVirtualAddressSpaceSize=N`
+  is required (without it `nninitStartup` aborts), and `N` is capped by the alias region — **the region is placed at
+  alias + 1 GB** (the SDK's node area), so `N` in MB / 1024 + 1 must fit in `mem_alias`. When the engine region and the
+  SDK's own `StandardAllocator` region compete for the alias region, `stdalloc_cap` pins the latter.
+- **Cost:** editing `game.tsv` alone does not invalidate the rewrite (a few minutes a try); editing `patches.py` or
+  adding a profile directory does, and an Unreal `main` of 80 MB takes tens of minutes to rewrite.
+- **Found on:** [SHIN MEGAMI TENSEI V: Vengeance](../../dm/games/010069C01AB82000/README.md) and
+  [OCTOPATH TRAVELER II](../../dm/games/0100A3501946E000/README.md) (`UE4_27`, made at run time), [FINAL FANTASY
+  RESONANCE](../../dm/games/0100606026F12000/README.md) (`UE5_6`, bss object), and SpongeBob SquarePants: Titans of the
+  Tide 1.4.0 (`UE5_6`, object `main+0x901b210`, vtable `main+0x7d07090`, cut `main+0x13880`, in a 79.6 MB `main`) — where
+  the vtable's slots 2-5 on one function and 6 / 8 / 10 at zero chose `UE5_6` over `UE4_27`.
+
 ### Thread stacks from the host's Unreal heap
 
 - **Symptom:** an abort right at `nnMain`, under `nn::os::CreateThread` → `ThreadManagerImplByHorizon::MapAliasStack` → `StackGuardManager::MapAtRandomAddress`; with the log line, `[RED] MapMemory refused (0xd401): <stack region> <- <address outside the guest block>`.
