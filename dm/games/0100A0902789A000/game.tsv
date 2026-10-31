@@ -34,5 +34,4 @@ sys_resource	0x1400000
 # the decoded shader code archives: the engine's global shaders and the game's material shaders
 shader_groups	ShaderArchive-Global-=global ShaderArchive-=game
 shader_note	SpongeBob SquarePants: Titans of the Tide shaders (IoStore global + game archives in main)
-game_args	-SwitchVirtualAddressSpaceSize=4064
 stdalloc_cap	0x80000000
